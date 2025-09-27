@@ -1,8 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-  FlatList,
   StyleSheet,
   RefreshControl,
   TouchableOpacity,
@@ -11,8 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import ReportCard from '../../components/reports/ReportCard';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
-import ErrorMessage from '../../components/common/ErrorMessage';
+import OptimizedFlatList from '../../components/common/OptimizedFlatList';
 import { useMyReports } from '../../hooks/useReports';
 
 const MyReportsScreen = ({ navigation }) => {
@@ -39,15 +37,17 @@ const MyReportsScreen = ({ navigation }) => {
     navigation.navigate('CreateReport');
   };
 
-  const renderReport = ({ item }) => (
+  const renderReport = useCallback(({ item }) => (
     <ReportCard
       report={item}
       onPress={handleReportPress}
       showUpvote={false}
     />
-  );
+  ), [handleReportPress]);
 
-  const renderEmptyState = () => (
+  const keyExtractor = useCallback((item) => item.id, []);
+
+  const emptyComponent = useMemo(() => (
     <View style={styles.emptyContainer}>
       <Ionicons name="document-outline" size={64} color="#ccc" />
       <Text style={styles.emptyTitle}>No Reports Yet</Text>
@@ -61,21 +61,28 @@ const MyReportsScreen = ({ navigation }) => {
         <Text style={styles.createButtonText}>Create Your First Report</Text>
       </TouchableOpacity>
     </View>
-  );
+  ), [navigateToCreateReport]);
 
-  if (loading && !refreshing) {
-    return <LoadingSpinner message="Loading your reports..." />;
-  }
-
-  if (error && !refreshing) {
-    return (
-      <ErrorMessage 
-        message={error} 
-        onRetry={refreshMyReports}
-        retryText="Retry"
-      />
-    );
-  }
+  const statsComponent = useMemo(() => (
+    <View style={styles.statsContainer}>
+      <View style={styles.statItem}>
+        <Text style={styles.statNumber}>{reports.length}</Text>
+        <Text style={styles.statLabel}>Total Reports</Text>
+      </View>
+      <View style={styles.statItem}>
+        <Text style={styles.statNumber}>
+          {reports.filter(r => r.status === 'resolved').length}
+        </Text>
+        <Text style={styles.statLabel}>Resolved</Text>
+      </View>
+      <View style={styles.statItem}>
+        <Text style={styles.statNumber}>
+          {reports.filter(r => r.status === 'pending').length}
+        </Text>
+        <Text style={styles.statLabel}>Pending</Text>
+      </View>
+    </View>
+  ), [reports]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -95,35 +102,19 @@ const MyReportsScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.statsContainer}>
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>{reports.length}</Text>
-          <Text style={styles.statLabel}>Total Reports</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>
-            {reports.filter(r => r.status === 'resolved').length}
-          </Text>
-          <Text style={styles.statLabel}>Resolved</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>
-            {reports.filter(r => r.status === 'pending').length}
-          </Text>
-          <Text style={styles.statLabel}>Pending</Text>
-        </View>
-      </View>
+      {statsComponent}
 
-      <FlatList
+      <OptimizedFlatList
         data={reports}
         renderItem={renderReport}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContainer}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
-        ListEmptyComponent={renderEmptyState}
-        showsVerticalScrollIndicator={false}
+        keyExtractor={keyExtractor}
+        loading={loading && !refreshing}
+        error={error && !refreshing ? error : null}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+        emptyComponent={emptyComponent}
+        estimatedItemSize={180}
+        style={styles.listContainer}
       />
     </SafeAreaView>
   );

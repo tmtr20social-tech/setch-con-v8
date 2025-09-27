@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Input from './Input';
 import LoadingSpinner from './LoadingSpinner';
 import { useLocation } from '../../hooks/useLocation';
+import { debounce } from '../../utils/debounce';
 
 const AddressInput = ({
   label = "Address",
@@ -18,26 +19,52 @@ const AddressInput = ({
   const [loading, setLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const { getCurrentLocation, reverseGeocode } = useLocation();
+  const abortControllerRef = useRef(null);
 
-  // Debounced search for address suggestions
+  // Debounced search function
+  const debouncedSearch = useCallback(
+    debounce(async (query) => {
+      if (!query || query.length < 3) {
+        setSuggestions([]);
+        setShowSuggestions(false);
+        return;
+      }
+      await searchAddresses(query);
+    }, 500),
+    []
+  );
+
+  // Effect for debounced search
   useEffect(() => {
-    if (!value || value.length < 3) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
+    debouncedSearch(value);
+    
+    // Cleanup on unmount
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [value, debouncedSearch]);
 
-    const timeoutId = setTimeout(() => {
-      searchAddresses(value);
-    }, 500);
-
-    return () => clearTimeout(timeoutId);
-  }, [value]);
-
-  const searchAddresses = async (query) => {
+  const searchAddresses = useCallback(async (query) => {
     try {
+      // Cancel previous request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      
+      abortControllerRef.current = new AbortController();
       setLoading(true);
+      
       // Mock implementation - in production, use Google Places API or similar
+      // Simulate network delay
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Check if request was cancelled
+      if (abortControllerRef.current?.signal.aborted) {
+        return;
+      }
+      
       const mockSuggestions = [
         {
           id: '1',
@@ -62,13 +89,16 @@ const AddressInput = ({
       setSuggestions(mockSuggestions);
       setShowSuggestions(true);
     } catch (error) {
-      console.error('Address search error:', error);
+      if (error.name !== 'AbortError') {
+        console.error('Address search error:', error);
+      }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
     }
-  };
+  }, []);
 
-  const handleSuggestionSelect = (suggestion) => {
+  const handleSuggestionSelect = useCallback((suggestion) => {
     onAddressChange(suggestion.description);
     if (onLocationChange) {
       onLocationChange({
@@ -78,9 +108,9 @@ const AddressInput = ({
     }
     setShowSuggestions(false);
     setSuggestions([]);
-  };
+  }, [onAddressChange, onLocationChange]);
 
-  const handleUseCurrentLocation = async () => {
+  const handleUseCurrentLocation = useCallback(async () => {
     try {
       setLoading(true);
       const location = await getCurrentLocation();
@@ -99,9 +129,9 @@ const AddressInput = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [getCurrentLocation, reverseGeocode, onAddressChange, onLocationChange]);
 
-  const renderSuggestion = ({ item }) => (
+  const renderSuggestion = useCallback(({ item }) => (
     <TouchableOpacity
       style={styles.suggestionItem}
       onPress={() => handleSuggestionSelect(item)}
@@ -109,7 +139,26 @@ const AddressInput = ({
       <Ionicons name="location-outline" size={16} color="#666" />
       <Text style={styles.suggestionText}>{item.description}</Text>
     </TouchableOpacity>
-  );
+  ), [handleSuggestionSelect]);
+
+  const keyExtractor = useCallback((item) => item.id, []);
+
+  const locationButton = useMemo(() => (
+    <TouchableOpacity
+      style={styles.locationButton}
+      onPress={handleUseCurrentLocation}
+      disabled={loading}
+    >
+      {loading ? (
+        <LoadingSpinner size="small" />
+      ) : (
+        <>
+          <Ionicons name="location" size={16} color="#2196F3" />
+          <Text style={styles.locationButtonText}>Use My Location</Text>
+        </>
+      )}
+    </TouchableOpacity>
+  ), [loading, handleUseCurrentLocation]);
 
   return (
     <View style={[styles.container, style]}>
@@ -124,20 +173,7 @@ const AddressInput = ({
           {...props}
         />
         
-        <TouchableOpacity
-          style={styles.locationButton}
-          onPress={handleUseCurrentLocation}
-          disabled={loading}
-        >
-          {loading ? (
-            <LoadingSpinner size="small" />
-          ) : (
-            <>
-              <Ionicons name="location" size={16} color="#2196F3" />
-              <Text style={styles.locationButtonText}>Use My Location</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        {locationButton}
       </View>
 
       {showSuggestions && suggestions.length > 0 && (
@@ -145,9 +181,12 @@ const AddressInput = ({
           <FlatList
             data={suggestions}
             renderItem={renderSuggestion}
-            keyExtractor={(item) => item.id}
+            keyExtractor={keyExtractor}
             style={styles.suggestionsList}
             keyboardShouldPersistTaps="handled"
+            removeClippedSubviews={true}
+            maxToRenderPerBatch={5}
+            initialNumToRender={5}
           />
         </View>
       )}

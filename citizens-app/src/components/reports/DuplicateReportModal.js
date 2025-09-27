@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,8 +11,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { REPORT_CATEGORIES } from '../../config/api';
 import Button from '../common/Button';
+import OptimizedFlatList from '../common/OptimizedFlatList';
 
-const DuplicateReportModal = ({
+const DuplicateReportModal = memo(({
   visible,
   onClose,
   duplicateReports,
@@ -20,7 +21,7 @@ const DuplicateReportModal = ({
   onSubmitNew,
   loading,
 }) => {
-  const handleUpvote = async (reportId) => {
+  const handleUpvote = useCallback(async (reportId) => {
     try {
       await onUpvoteExisting(reportId);
       Alert.alert(
@@ -31,9 +32,9 @@ const DuplicateReportModal = ({
     } catch (error) {
       Alert.alert('Error', error.message);
     }
-  };
+  }, [onUpvoteExisting, onClose]);
 
-  const renderDuplicateReport = ({ item }) => {
+  const renderDuplicateReport = useCallback(({ item }) => {
     const category = REPORT_CATEGORIES.find(cat => cat.value === item.category);
     const distance = item.distance ? `${Math.round(item.distance)}m away` : 'Nearby';
 
@@ -74,7 +75,47 @@ const DuplicateReportModal = ({
         </View>
       </View>
     );
-  };
+  }, [handleUpvote, loading]);
+
+  const keyExtractor = useCallback((item) => item.id, []);
+
+  const modalContent = useMemo(() => (
+    <View style={styles.modalContainer}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Similar Issue Found</Text>
+        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+          <Ionicons name="close" size={24} color="#666" />
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.subtitle}>
+        A similar issue has already been reported nearby. Is this the same issue?
+      </Text>
+
+      <View style={styles.reportsContainer}>
+        <OptimizedFlatList
+          data={duplicateReports}
+          renderItem={renderDuplicateReport}
+          keyExtractor={keyExtractor}
+          estimatedItemSize={150}
+          style={styles.reportsList}
+          emptyTitle="No similar reports found"
+          emptySubtitle=""
+        />
+      </View>
+
+      <View style={styles.buttonContainer}>
+        <Button
+          title="Submit New Report"
+          onPress={onSubmitNew}
+          variant="outline"
+          style={styles.submitButton}
+          loading={loading}
+        />
+        <Text style={styles.orText}>or upvote an existing report above</Text>
+      </View>
+    </View>
+  ), [duplicateReports, renderDuplicateReport, keyExtractor, onClose, onSubmitNew, loading]);
 
   return (
     <Modal
@@ -84,43 +125,13 @@ const DuplicateReportModal = ({
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <View style={styles.modalContainer}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Similar Issue Found</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="#666" />
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.subtitle}>
-            A similar issue has already been reported nearby. Is this the same issue?
-          </Text>
-
-          <View style={styles.reportsContainer}>
-            <FlatList
-              data={duplicateReports}
-              renderItem={renderDuplicateReport}
-              keyExtractor={(item) => item.id}
-              showsVerticalScrollIndicator={false}
-              style={styles.reportsList}
-            />
-          </View>
-
-          <View style={styles.buttonContainer}>
-            <Button
-              title="Submit New Report"
-              onPress={onSubmitNew}
-              variant="outline"
-              style={styles.submitButton}
-              loading={loading}
-            />
-            <Text style={styles.orText}>or upvote an existing report above</Text>
-          </View>
-        </View>
+        {modalContent}
       </View>
     </Modal>
   );
-};
+});
+
+DuplicateReportModal.displayName = 'DuplicateReportModal';
 
 const styles = StyleSheet.create({
   overlay: {

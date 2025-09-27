@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import reportService from '../services/reportService';
 
 export const useReports = (filters = {}) => {
@@ -11,7 +11,7 @@ export const useReports = (filters = {}) => {
     offset: 0,
   });
 
-  const fetchReports = async (newFilters = {}) => {
+  const fetchReports = useCallback(async (newFilters = {}) => {
     try {
       setLoading(true);
       setError(null);
@@ -30,15 +30,15 @@ export const useReports = (filters = {}) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters]);
 
-  const refreshReports = () => {
+  const refreshReports = useCallback(() => {
     fetchReports();
-  };
+  }, [fetchReports]);
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [fetchReports]);
 
   return {
     reports,
@@ -60,7 +60,7 @@ export const useMyReports = (filters = {}) => {
     offset: 0,
   });
 
-  const fetchMyReports = async (newFilters = {}) => {
+  const fetchMyReports = useCallback(async (newFilters = {}) => {
     try {
       setLoading(true);
       setError(null);
@@ -79,15 +79,15 @@ export const useMyReports = (filters = {}) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters]);
 
-  const refreshMyReports = () => {
+  const refreshMyReports = useCallback(() => {
     fetchMyReports();
-  };
+  }, [fetchMyReports]);
 
   useEffect(() => {
     fetchMyReports();
-  }, []);
+  }, [fetchMyReports]);
 
   return {
     reports,
@@ -104,7 +104,7 @@ export const useReport = (reportId) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchReport = async () => {
+  const fetchReport = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -116,31 +116,31 @@ export const useReport = (reportId) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [reportId]);
 
-  const upvoteReport = async () => {
+  const upvoteReport = useCallback(async () => {
     try {
       await reportService.upvoteReport(reportId);
       await fetchReport(); // Refresh report data
     } catch (err) {
       throw err;
     }
-  };
+  }, [reportId, fetchReport]);
 
-  const removeUpvote = async () => {
+  const removeUpvote = useCallback(async () => {
     try {
       await reportService.removeUpvote(reportId);
       await fetchReport(); // Refresh report data
     } catch (err) {
       throw err;
     }
-  };
+  }, [reportId, fetchReport]);
 
   useEffect(() => {
     if (reportId) {
       fetchReport();
     }
-  }, [reportId]);
+  }, [reportId, fetchReport]);
 
   return {
     report,

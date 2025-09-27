@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,10 +15,12 @@ import { useLocation } from '../../hooks/useLocation';
 import municipalityService from '../../services/municipalityService';
 import reportService from '../../services/reportService';
 import { REPORT_CATEGORIES } from '../../config/api';
+import cacheService from '../../services/cacheService';
 
 const MapScreen = ({ navigation }) => {
   const [municipalities, setMunicipalities] = useState([]);
   const [reports, setReports] = useState([]);
+  const [visibleReports, setVisibleReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [mapRegion, setMapRegion] = useState({
@@ -28,23 +30,43 @@ const MapScreen = ({ navigation }) => {
     longitudeDelta: 0.5,
   });
   const { getCurrentLocation } = useLocation();
+  const mapRef = useRef(null);
+  const clusteredMarkers = useRef(new Map());
 
   useEffect(() => {
     loadMapData();
+    
+    // Cleanup on unmount
+    return () => {
+      reportService.cancelAllRequests();
+    };
   }, []);
 
-  const loadMapData = async () => {
+  const loadMapData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
+      // Try to load from cache first
+      const cachedMunicipalities = await cacheService.get('municipalities_geojson');
+      const cachedReports = await cacheService.get('map_reports');
+
+      if (cachedMunicipalities && cachedReports) {
+        setMunicipalities(cachedMunicipalities);
+        setReports(cachedReports);
+        setLoading(false);
+      }
+
       // Load municipalities with GeoJSON data
       const municipalitiesData = await municipalityService.getMunicipalities(true);
       setMunicipalities(municipalitiesData);
+      await cacheService.set('municipalities_geojson', municipalitiesData, 24 * 60 * 60 * 1000); // 24 hours
 
       // Load reports
       const reportsData = await reportService.getReports({ limit: 100 });
-      setReports(reportsData.reports);
+      const reportsArray = reportsData.reports;
+      setReports(reportsArray);
+      await cacheService.set('map_reports', reportsArray, 10 * 60 * 1000); // 10 minutes
 
       // Try to get user's current location
       try {
@@ -63,14 +85,13 @@ const MapScreen = ({ navigation }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [getCurrentLocation]);
 
-  const handleReportPress = (report) => {
+  const handleReportPress = useCallback((report) => {
     navigation.navigate('ReportDetail', { reportId: report.id });
-  };
+  }, [navigation]);
 
-  const getMarkerColor = (category) => {
-    const categoryData = REPORT_CATEGORIES.find(cat => cat.value === category);
+  const getMarkerColor = useCallback((category) => {
     switch (category) {
       case 'water': return '#2196F3';
       case 'electricity': return '#FFC107';
@@ -79,9 +100,63 @@ const MapScreen = ({ navigation }) => {
       case 'safety': return '#F44336';
       default: return '#9E9E9E';
     }
-  };
+  }, []);
 
-  const renderMunicipalityPolygons = () => {
+  // Cluster nearby markers for better performance
+  const clusterReports = useCallback((reports, region) => {
+    const clustered = new Map();
+    const clusterRadius = 0.01; // Adjust based on zoom level
+    
+    reports.forEach(report => {
+      // Only include reports in visible region
+      if (
+        report.lat >= region.latitude - region.latitudeDelta / 2 &&
+        report.lat <= region.latitude + region.latitudeDelta / 2 &&
+        report.lng >= region.longitude - region.longitudeDelta / 2 &&
+        report.lng <= region.longitude + region.longitudeDelta / 2
+      ) {
+        const clusterKey = `${Math.round(report.lat / clusterRadius)}_${Math.round(report.lng / clusterRadius)}`;
+        
+        if (!clustered.has(clusterKey)) {
+          clustered.set(clusterKey, []);
+        }
+        clustered.get(clusterKey).push(report);
+      }
+    });
+    
+    return Array.from(clustered.values());
+  }, []);
+
+  // Update visible reports when region changes
+  const handleRegionChangeComplete = useCallback((region) => {
+    setMapRegion(region);
+    
+    // Cluster reports for current region
+    const clusters = clusterReports(reports, region);
+    const visibleReportsArray = clusters.map(cluster => {
+      if (cluster.length === 1) {
+        return cluster[0];
+      } else {
+        // Create cluster marker
+        const avgLat = cluster.reduce((sum, r) => sum + r.lat, 0) / cluster.length;
+        const avgLng = cluster.reduce((sum, r) => sum + r.lng, 0) / cluster.length;
+        return {
+          id: `cluster_${cluster.map(r => r.id).join('_')}`,
+          lat: avgLat,
+          lng: avgLng,
+          title: `${cluster.length} Reports`,
+          description: `Multiple reports in this area`,
+          category: 'cluster',
+          isCluster: true,
+          reports: cluster,
+        };
+      }
+    });
+    
+    setVisibleReports(visibleReportsArray);
+  }, [reports, clusterReports]);
+
+  const renderMunicipalityPolygons = useMemo(() => {
     return municipalities.map((municipality) => {
       if (!municipality.bounds || !municipality.bounds.coordinates) {
         return null;
@@ -107,10 +182,10 @@ const MapScreen = ({ navigation }) => {
         return null;
       }
     });
-  };
+  }, [municipalities]);
 
-  const renderReportMarkers = () => {
-    return reports.map((report) => (
+  const renderReportMarkers = useMemo(() => {
+    return visibleReports.map((report) => (
       <Marker
         key={report.id}
         coordinate={{
@@ -120,10 +195,22 @@ const MapScreen = ({ navigation }) => {
         title={report.title}
         description={report.description}
         pinColor={getMarkerColor(report.category)}
-        onCalloutPress={() => handleReportPress(report)}
+        onCalloutPress={() => {
+          if (report.isCluster) {
+            // Zoom into cluster
+            mapRef.current?.animateToRegion({
+              latitude: report.lat,
+              longitude: report.lng,
+              latitudeDelta: mapRegion.latitudeDelta / 3,
+              longitudeDelta: mapRegion.longitudeDelta / 3,
+            });
+          } else {
+            handleReportPress(report);
+          }
+        }}
       />
     ));
-  };
+  }, [visibleReports, getMarkerColor, handleReportPress, mapRegion]);
 
   if (loading) {
     return <LoadingSpinner message="Loading map data..." />;
@@ -152,11 +239,15 @@ const MapScreen = ({ navigation }) => {
       </View>
 
       <MapView
+        ref={mapRef}
         style={styles.map}
-        region={mapRegion}
-        onRegionChangeComplete={setMapRegion}
+        initialRegion={mapRegion}
+        onRegionChangeComplete={handleRegionChangeComplete}
         showsUserLocation={true}
         showsMyLocationButton={true}
+        loadingEnabled={true}
+        maxZoomLevel={18}
+        minZoomLevel={8}
       >
         {renderMunicipalityPolygons()}
         {renderReportMarkers()}

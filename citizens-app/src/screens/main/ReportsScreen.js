@@ -1,8 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-  FlatList,
   StyleSheet,
   RefreshControl,
   TouchableOpacity,
@@ -12,8 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import ReportCard from '../../components/reports/ReportCard';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
-import ErrorMessage from '../../components/common/ErrorMessage';
+import OptimizedFlatList from '../../components/common/OptimizedFlatList';
 import { useReports } from '../../hooks/useReports';
 import reportService from '../../services/reportService';
 
@@ -24,6 +22,11 @@ const ReportsScreen = ({ navigation }) => {
   useFocusEffect(
     useCallback(() => {
       refreshReports();
+      
+      // Cleanup on unmount
+      return () => {
+        reportService.cancelAllRequests();
+      };
     }, [])
   );
 
@@ -50,16 +53,18 @@ const ReportsScreen = ({ navigation }) => {
     navigation.navigate('CreateReport');
   };
 
-  const renderReport = ({ item }) => (
+  const renderReport = useCallback(({ item }) => (
     <ReportCard
       report={item}
       onPress={handleReportPress}
       showUpvote={true}
       onUpvote={handleUpvote}
     />
-  );
+  ), [handleReportPress, handleUpvote]);
 
-  const renderEmptyState = () => (
+  const keyExtractor = useCallback((item) => item.id, []);
+
+  const emptyComponent = useMemo(() => (
     <View style={styles.emptyContainer}>
       <Ionicons name="document-text-outline" size={64} color="#ccc" />
       <Text style={styles.emptyTitle}>No Reports Yet</Text>
@@ -73,21 +78,7 @@ const ReportsScreen = ({ navigation }) => {
         <Text style={styles.createButtonText}>Create Report</Text>
       </TouchableOpacity>
     </View>
-  );
-
-  if (loading && !refreshing) {
-    return <LoadingSpinner message="Loading reports..." />;
-  }
-
-  if (error && !refreshing) {
-    return (
-      <ErrorMessage 
-        message={error} 
-        onRetry={refreshReports}
-        retryText="Retry"
-      />
-    );
-  }
+  ), [navigateToCreateReport]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -101,16 +92,17 @@ const ReportsScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      <FlatList
+      <OptimizedFlatList
         data={reports}
         renderItem={renderReport}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContainer}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
-        ListEmptyComponent={renderEmptyState}
-        showsVerticalScrollIndicator={false}
+        keyExtractor={keyExtractor}
+        loading={loading && !refreshing}
+        error={error && !refreshing ? error : null}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+        emptyComponent={emptyComponent}
+        estimatedItemSize={180}
+        style={styles.listContainer}
       />
     </SafeAreaView>
   );

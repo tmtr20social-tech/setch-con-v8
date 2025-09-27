@@ -1,30 +1,42 @@
-import React from 'react';
+import React, { memo, useCallback, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { REPORT_CATEGORIES, REPORT_STATUSES } from '../../config/api';
 
-const ReportCard = ({ report, onPress, showUpvote = false, onUpvote }) => {
-  const category = REPORT_CATEGORIES.find(cat => cat.value === report.category);
-  const status = REPORT_STATUSES.find(stat => stat.value === report.status);
+const ReportCard = memo(({ report, onPress, showUpvote = false, onUpvote }) => {
+  const category = useMemo(() => 
+    REPORT_CATEGORIES.find(cat => cat.value === report.category),
+    [report.category]
+  );
+  
+  const status = useMemo(() => 
+    REPORT_STATUSES.find(stat => stat.value === report.status),
+    [report.status]
+  );
 
-  const formatDate = (dateString) => {
+  const formattedDate = useMemo(() => {
+    if (!report.created_at) return '';
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
     });
-  };
+  }, [report.created_at]);
 
-  const handleUpvote = (e) => {
+  const handleUpvote = useCallback((e) => {
     e.stopPropagation();
     if (onUpvote) {
       onUpvote(report.id);
     }
-  };
+  }, [onUpvote, report.id]);
+
+  const handlePress = useCallback(() => {
+    onPress(report);
+  }, [onPress, report]);
 
   return (
-    <TouchableOpacity style={styles.container} onPress={() => onPress(report)}>
+    <TouchableOpacity style={styles.container} onPress={handlePress}>
       <View style={styles.header}>
         <View style={styles.categoryContainer}>
           <Ionicons 
@@ -56,7 +68,7 @@ const ReportCard = ({ report, onPress, showUpvote = false, onUpvote }) => {
         </View>
         
         <View style={styles.metaContainer}>
-          <Text style={styles.date}>{formatDate(report.created_at)}</Text>
+          <Text style={styles.date}>{formattedDate}</Text>
           
           {showUpvote && (
             <TouchableOpacity 
@@ -75,7 +87,9 @@ const ReportCard = ({ report, onPress, showUpvote = false, onUpvote }) => {
       </View>
     </TouchableOpacity>
   );
-};
+});
+
+ReportCard.displayName = 'ReportCard';
 
 const styles = StyleSheet.create({
   container: {

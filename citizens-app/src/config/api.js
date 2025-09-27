@@ -1,7 +1,13 @@
 // API Configuration
-import { API_URL } from '@env';
+// Use production backend URL directly
+export const API_BASE_URL = 'https://setshaba-connect-backend.onrender.com/api';
 
-export const API_BASE_URL = API_URL;
+// Cache configuration
+export const CACHE_DURATION = {
+  SHORT: 5 * 60 * 1000, // 5 minutes
+  MEDIUM: 30 * 60 * 1000, // 30 minutes
+  LONG: 24 * 60 * 60 * 1000, // 24 hours
+};
 
 export const API_ENDPOINTS = {
   // Auth

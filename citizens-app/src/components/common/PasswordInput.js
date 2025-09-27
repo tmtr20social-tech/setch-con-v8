@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Input from './Input';
 
-const PasswordInput = ({
+const PasswordInput = React.memo(({
   label = "Password",
   value,
   onChangeText,
@@ -19,36 +19,36 @@ const PasswordInput = ({
     hasSpecialChar: false,
   });
 
-  useEffect(() => {
-    if (showRequirements) {
-      checkPasswordRequirements(value);
-    }
-  }, [value, showRequirements]);
-
-  const checkPasswordRequirements = (password) => {
+  const checkPasswordRequirements = useCallback((password) => {
     if (!password) {
-      setRequirements({
+      return {
         minLength: false,
         hasUppercase: false,
         hasNumber: false,
         hasSpecialChar: false,
-      });
-      return;
+      };
     }
 
-    setRequirements({
+    return {
       minLength: password.length >= 8,
       hasUppercase: /[A-Z]/.test(password),
       hasNumber: /\d/.test(password),
       hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(password),
-    });
-  };
+    };
+  }, []);
 
-  const isPasswordValid = () => {
+  useEffect(() => {
+    if (showRequirements) {
+      const newRequirements = checkPasswordRequirements(value);
+      setRequirements(newRequirements);
+    }
+  }, [value, showRequirements, checkPasswordRequirements]);
+
+  const isPasswordValid = useMemo(() => {
     return Object.values(requirements).every(req => req);
-  };
+  }, [requirements]);
 
-  const renderRequirement = (text, isValid) => (
+  const renderRequirement = useCallback((text, isValid) => (
     <View style={styles.requirementItem} key={text}>
       <Ionicons
         name={isValid ? 'checkmark-circle' : 'close-circle'}
@@ -62,7 +62,21 @@ const PasswordInput = ({
         {text}
       </Text>
     </View>
-  );
+  ), []);
+
+  const requirementsComponent = useMemo(() => {
+    if (!showRequirements) return null;
+
+    return (
+      <View style={styles.requirementsContainer}>
+        <Text style={styles.requirementsTitle}>Password Requirements:</Text>
+        {renderRequirement('At least 8 characters', requirements.minLength)}
+        {renderRequirement('At least 1 uppercase letter', requirements.hasUppercase)}
+        {renderRequirement('At least 1 number', requirements.hasNumber)}
+        {renderRequirement('At least 1 special character (!@#$%^&*)', requirements.hasSpecialChar)}
+      </View>
+    );
+  }, [showRequirements, requirements, renderRequirement]);
 
   return (
     <View style={[styles.container, style]}>
@@ -75,18 +89,12 @@ const PasswordInput = ({
         {...props}
       />
       
-      {showRequirements && (
-        <View style={styles.requirementsContainer}>
-          <Text style={styles.requirementsTitle}>Password Requirements:</Text>
-          {renderRequirement('At least 8 characters', requirements.minLength)}
-          {renderRequirement('At least 1 uppercase letter', requirements.hasUppercase)}
-          {renderRequirement('At least 1 number', requirements.hasNumber)}
-          {renderRequirement('At least 1 special character (!@#$%^&*)', requirements.hasSpecialChar)}
-        </View>
-      )}
+      {requirementsComponent}
     </View>
   );
-};
+});
+
+PasswordInput.displayName = 'PasswordInput';
 
 const styles = StyleSheet.create({
   container: {
